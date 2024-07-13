@@ -1,0 +1,13 @@
+{
+  "StaticPath": [
+    "/etc/redis"
+  ],
+  "Path": [
+    "/usr/bin"
+  ],
+  "Run": [
+    "echo",
+    "hello"
+  ],
+  "LinkMode": true
+}

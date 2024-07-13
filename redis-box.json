@@ -1,0 +1,19 @@
+{
+	"StaticPath": [
+		"/var/log/redis"
+	],
+	"Path": [
+		"/etc/redis",
+		"/var/lib/redis"
+	],
+	"Run": [
+		"/bin/redis-server",
+		"/etc/redis/redis.conf",
+		"--daemonize",
+		"no",
+		"--ignore-warnings",
+		"ARM64-COW-BUG"
+	],
+	"LinkMode": true,
+	"StandloneNet": true
+}
