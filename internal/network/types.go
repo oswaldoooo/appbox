@@ -136,3 +136,29 @@ func (t *NetType) Set(s string) error {
 func (t *NetType) Type() string {
 	return "net-type"
 }
+
+func (nc *NetConfig) SetVeth(name string, addr net.IP, bit uint8, pid string, peer_pid string) {
+	nc.IP = addr
+	nc.KeepBit = bit
+	nc.Name = name
+	nc.NsPid = pid
+	nc.VethAttr.PairA.Name = name
+	nc.VethAttr.PairA.IP = addr
+	nc.VethAttr.PairA.KeepBit = bit
+	nc.VethAttr.PairA.NsPid = pid
+	nc.Type = Veth
+	var rd [2]byte
+	rand.Read(rd[:])
+	nc.VethAttr.PairB.Name = "veth" + hex.EncodeToString(rd[:])
+	nc.VethAttr.PairB.NsPid = peer_pid
+}
+
+func (nc *NetConfig) SetBrd(name string, addr net.IP, bit uint8, pid string) {
+	nc.IP = addr
+	nc.KeepBit = bit
+	nc.Name = name
+	nc.NsPid = pid
+	nc.BrdAttr.IP = addr
+	nc.BrdAttr.KeepBit = bit
+	nc.BrdAttr.Name = name
+}

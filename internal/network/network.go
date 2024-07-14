@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/oswaldoooo/app/internal/linux"
+	"github.com/oswaldoooo/app/internal/mode"
 )
 
 const (
@@ -68,7 +72,7 @@ func NewSubnet(cnf *NetConfig) (nc NetConfig, err error) {
 	return
 }
 func Dump(netcnf *NetConfig) error {
-	f, err := os.OpenFile(getNcPath(), os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(getNcPath(), os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}
@@ -144,8 +148,10 @@ func NetRaw(netns string, args ...string) error {
 		cmd = append(cmd, "ip", "netns", "exec", netns)
 	}
 	cmd = append(cmd, args...)
-	// _, f, line, _ := runtime.Caller(1)
-	// fmt.Println(f+":"+strconv.Itoa(line), strings.Join(cmd, " "))
+	if mode.RunMode&mode.Debug > 0 {
+		_, f, line, _ := runtime.Caller(1)
+		fmt.Println(f+":"+strconv.Itoa(line), strings.Join(cmd, " "))
+	}
 	return linux.Execute(context.Background(), cmd[0], cmd[1:]...).Run().Err
 }
 func IfaceUp(name string, netns string) error {

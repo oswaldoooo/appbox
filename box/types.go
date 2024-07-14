@@ -1,8 +1,10 @@
 package box
 
 import (
+	"bytes"
 	"errors"
 	"net"
+	"strconv"
 	"syscall"
 
 	"github.com/oswaldoooo/app/internal/network"
@@ -84,4 +86,40 @@ func (b *BoxNetConfig) Valid() error {
 }
 func (b *BoxNetConfig) IsVaild() bool {
 	return b.Valid() == nil
+}
+
+type IP struct {
+	IP      net.IP
+	KeepBit uint8
+}
+
+func (i *IP) String() string {
+	return "127.0.0.1/24"
+}
+
+func (i *IP) Set(s string) error {
+	return i.UnmarshalText([]byte(s))
+}
+
+func (i *IP) Type() string {
+	return "ip"
+}
+func (i *IP) UnmarshalText(text []byte) error {
+	index := bytes.IndexByte(text, '/')
+	if index < 0 {
+		return errors.New("format error")
+	}
+	err := i.IP.UnmarshalText(text[:index])
+	if err != nil {
+		return err
+	}
+	bit, err := strconv.ParseUint(string(text[index+1:]), 10, 8)
+	if err != nil {
+		return err
+	}
+	if bit > 32 {
+		return errors.New("netmask is 0~32")
+	}
+	i.KeepBit = uint8(bit)
+	return nil
 }
