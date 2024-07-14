@@ -1,6 +1,8 @@
 package network
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net"
 	"strconv"
@@ -9,12 +11,35 @@ import (
 type NetConfig struct {
 	IP       net.IP
 	Name     string
+	KeepBit  uint8
 	NsPid    string // if it's private. store it's namespace pid
 	SubNet   []NetConfig
 	Type     NetType
 	BrdAttr  BrdAttr
 	VethAttr VethAttr
 }
+
+func (nc *NetConfig) Validate() error {
+	if !nc.Type.IsValid() {
+		return errors.New("net config is invalid")
+	}
+	if nc.IsBridge() {
+		nc.BrdAttr.IP = nc.IP
+		nc.BrdAttr.Name = nc.Name
+		nc.BrdAttr.KeepBit = nc.KeepBit
+	} else if nc.IsVeth() {
+		nc.VethAttr.PairA.IP = nc.IP
+		nc.VethAttr.PairA.Name = nc.Name
+		nc.VethAttr.PairA.KeepBit = nc.KeepBit
+		if len(nc.VethAttr.PairB.Name) == 0 {
+			var rd [2]byte
+			rand.Read(rd[:])
+			nc.VethAttr.PairB.Name = "veth" + hex.EncodeToString(rd[:])
+		}
+	}
+	return nil
+}
+
 type NetType uint
 
 func (t NetType) IsValid() bool {
@@ -28,6 +53,7 @@ const (
 	Tun
 	Tap
 )
+const default_keep_bit = 24
 
 var net_type_map = []string{
 	"Invalid",
@@ -37,14 +63,33 @@ var net_type_map = []string{
 	"tap",
 }
 
-type BrdAttr struct {
-	Name string
-	IP   net.IP
+type IpInterface interface {
+	IPString() string
 }
+type BrdAttr struct {
+	Name    string
+	IP      net.IP
+	KeepBit uint8
+}
+
+func (v *VethPair) IPString() string {
+	if v.KeepBit == 0 {
+		v.KeepBit = default_keep_bit
+	}
+	return v.IP.String() + "/" + strconv.Itoa(int(v.KeepBit))
+}
+func (b *BrdAttr) IPString() string {
+	if b.KeepBit == 0 {
+		b.KeepBit = default_keep_bit
+	}
+	return b.IP.String() + "/" + strconv.Itoa(int(b.KeepBit))
+}
+
 type VethPair struct {
-	Name  string
-	IP    net.IP
-	NsPid string
+	Name    string
+	IP      net.IP
+	KeepBit uint8 // ip/keepbit=127.0.0.1/8
+	NsPid   string
 }
 type VethAttr struct {
 	PairA VethPair

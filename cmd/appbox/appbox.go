@@ -109,6 +109,7 @@ func do_net_flag(pf *pflag.FlagSet, bcnf *box.BoxNetConfig) {
 	pf.StringVar(&bcnf.Pid, "pid", "", "target pid[optional]")
 	pf.Var(&bcnf.Type, "type", "net type")
 	pf.StringP("apply", "f", "", "apply config file")
+	pf.Uint8Var(&bcnf.KeepBit, "keep", 0, "net keep")
 }
 func do_net(cmd *cobra.Command, args []string) {
 	fpath, _ := cmd.Flags().GetString("apply")

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/oswaldoooo/app/box"
 	"github.com/oswaldoooo/app/internal/linux"
@@ -74,7 +75,13 @@ func validate(cnf *box.BoxConfig) {
 func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 	bnscnf := bcnf.NsConfig()
 	validate(&bcnf)
-	err := linux.Unshare(bnscnf.Flags, bnscnf.MountProc).Then(func(hook *linux.Hook, a any) {
+	err := prepare_ns(bcnf.LinkNet, bcnf.LinkFs, bcnf.LinkPid, bcnf.LinkUts)
+	if err != nil {
+		return errors.New("link namespace error " + err.Error())
+	}
+	parentpid := os.Getpid()
+	err = linux.Unshare(bnscnf.Flags, bnscnf.MountProc).Then(func(hook *linux.Hook, a any) {
+		println("curr pid", os.Getpid())
 		cnf := a.(box.BoxNsConfig)
 		var err error
 		err = linux.SetNsWithFile("/proc/1/ns/net", 0)
@@ -85,7 +92,7 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 			syscall.Kill(_pid, syscall.SIGKILL)
 			return
 		}
-		err = linux.SetNsWithFile("/proc/"+Parent_MNTNS_ID+"/ns/mnt", 0)
+		err = linux.SetNsWithFile("/proc/1/ns/mnt", 0)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "set parent ns error", err)
 			syscall.Kill(_pid, syscall.SIGKILL)
@@ -104,22 +111,64 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 		}
 		child_pid := hook.Data().(int)
 		if cnf.Flags&syscall.CLONE_NEWNET > 0 {
-			err := config_network(child_pid)
+			// err = prepare_ns(bcnf.LinkNet, bcnf.LinkFs, bcnf.LinkPid, bcnf.LinkUts)
+			// if err != nil {
+			// 	syscall.Kill(child_pid, syscall.SIGKILL)
+			// 	hook.Err = errors.New("herit ns error" + err.Error())
+			// 	return
+			// }
+			err = config_network(child_pid)
 			if err != nil {
-				syscall.Kill(child_pid, syscall.SIGINT)
+				syscall.Kill(child_pid, syscall.SIGKILL)
 				hook.Err = errors.New("config network error " + err.Error())
 				return
 			}
 		}
+		// ls_a()
+		// child_pid_str := strconv.Itoa(child_pid)
+
+		//init child process log directory
+		// err = linux.SetNsWithFile("/proc/"+child_pid_str+"/ns/mnt", 0)
+		// if err != nil {
+		// 	syscall.Kill(child_pid, syscall.SIGKILL)
+		// 	hook.Err = errors.New("switch to child pid mnt namespace error " + err.Error())
+		// 	return
+		// }
+		// err = os.MkdirAll("/app/var/log/appbox", 0755)
+		// if err != nil {
+		// 	syscall.Kill(child_pid, syscall.SIGKILL)
+		// 	hook.Err = errors.New("create /var/log/appbox error " + err.Error())
+		// 	return
+		// }
+		// err = os.MkdirAll("/var/log/appbox/appbox"+child_pid_str, 0755)
+		// if err != nil {
+		// 	syscall.Kill(child_pid, syscall.SIGKILL)
+		// 	hook.Err = errors.New("create /var/log/appbox error " + err.Error())
+		// 	return
+		// }
+		// err = linux.MountBind(0, "/var/log/appbox/appbox"+child_pid_str, "/app/var/log/appbox")
+		// if err != nil {
+		// 	syscall.Kill(child_pid, syscall.SIGKILL)
+		// 	hook.Err = errors.New("mount appbox directory error " + err.Error())
+		// 	return
+		// }
+		// _, err = os.Create("/app/var/log/appbox/null")
+		// if err != nil {
+		// 	fmt.Fprintln(os.Stderr, "create appbox/null error", err)
+		// }
+		//notify child process continue
+		println(child_pid)
 	}, bnscnf).End(1)
 	if err != nil {
 		return errors.New("make new appbox error " + err.Error())
 	}
-	go notify_close()
-	err = prepare_ns(bcnf.LinkNet, bcnf.LinkFs, bcnf.LinkPid, bcnf.LinkUts)
-	if err != nil {
-		return errors.New("herit ns error" + err.Error())
-	}
+	// go notify_close()
+	// err = prepare_ns(bcnf.LinkNet, bcnf.LinkFs, bcnf.LinkPid, bcnf.LinkUts)
+	// if err != nil {
+	// 	return errors.New("herit ns error" + err.Error())
+	// }
+	// ch := make(chan os.Signal, 1)
+	// signal.Notify(ch, syscall.SIGUNUSED)
 	err = herit_sys_dep()
 	if err != nil {
 		return errors.New("herit system dependencies to appbox error " + err.Error())
@@ -136,24 +185,74 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 	if err != nil {
 		return errors.New("move static path resource to appbox error " + err.Error())
 	}
+	// println("wait parent signal", os.Getpid())
+	// <-ctx.Done()
+	// println("receive signal")
+	// syscall.Kill(parentpid, syscall.SIGUNUSED)
+	// err = init_io()
+	// if err != nil {
+	// 	return errors.New("init io error " + err.Error())
+	// }
 	err = linux.Chroot("/app")
 	// err = syscall.Chroot("/app")
 	if err != nil {
+		println("chroot error ", err.Error())
+		syscall.Kill(parentpid, syscall.SIGUNUSED)
 		return errors.New("chroot to appbox error " + err.Error())
 	}
-	dents, _ := os.ReadDir("/")
-	var ds []string = make([]string, len(dents))
-	for i, d := range dents {
-		ds[i] = d.Name()
-	}
-	cmd := linux.Execute(ctx, bcnf.Run[0], bcnf.Run[1:]...).Start()
+	// time.Sleep(time.Second * 60)
+	// err = init_io()
+	// if err != nil {
+	// 	syscall.Kill(parentpid, syscall.SIGUNUSED)
+	// 	return errors.New("init io error " + err.Error())
+	// }
+	//wait parent process init finished
+	// <-_ctx.Done()
+	// time.Sleep(time.Second * 2)
+	// <-_ctx.Done()
+	// dents, _ := os.ReadDir("/")
+	// var ds []string = make([]string, len(dents))
+	// for i, d := range dents {
+	// 	ds[i] = d.Name()
+	// }
+	cmd := linux.Execute(ctx, bcnf.Run[0], bcnf.Run[1:]...).SetIO(os.Stdout, os.Stderr).Start()
 	if cmd.Err != nil {
 		return errors.New("run command error " + cmd.Err.Error() + "\n" + strings.Join(bcnf.Run, " "))
 	}
-	println("[debug] pid", cmd.Process.Pid)
-	return cmd.Wait().Err
+	// println("[debug] pid", cmd.Process.Pid)
+	err = cmd.Wait().Err
+	if err != nil {
+		return errors.New("wait command end error " + err.Error())
+	}
+	return nil
 }
-
+func init_io() error {
+	_, err := os.Stat("/var/log/appbox/null")
+	if err != nil {
+		time.Sleep(time.Second)
+		_, err = os.Stat("/var/log/appbox/null")
+		if err != nil {
+			return errors.New("check appbox/null file error " + err.Error())
+		}
+	}
+	stderr, err := os.OpenFile("/var/log/appbox/stderr.log", os.O_WRONLY|os.O_CREATE, 0555)
+	if err != nil {
+		return err
+	}
+	stdout, err := os.OpenFile("/var/log/appbox/stdout.log", os.O_WRONLY|os.O_CREATE, 0555)
+	if err != nil {
+		return err
+	}
+	if os.Stderr != nil {
+		os.Stderr.Close()
+	}
+	if os.Stdout != nil {
+		os.Stdout.Close()
+	}
+	os.Stderr = stderr
+	os.Stdout = stdout
+	return nil
+}
 func copy_app_resources(paths []string) error {
 	if len(paths) == 0 {
 		return nil
@@ -220,12 +319,19 @@ func config_network(child_pid int) error {
 		if err != nil {
 			return err
 		}
+		//config route
+		err = network.NetRaw(subnet.VethAttr.PairA.NsPid, "ip", "route", "add", "default", "via", root_net.IP.String(), "dev", subnet.VethAttr.PairA.Name)
+		if err != nil {
+			time.Sleep(time.Second * 50)
+			return errors.New("config ip route error " + err.Error())
+		}
 		subnet.NsPid = strconv.Itoa(child_pid)
 		root_net.SubNet = append(root_net.SubNet, subnet)
 		err = network.Dump(&root_net)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "dump to appbox-net config error", err)
 		}
+
 	}
 
 	return nil
@@ -365,4 +471,8 @@ func notify_close() {
 		_end_heap[i]._Func(_end_heap[i]._Arg)
 	}
 	println("exit finished")
+}
+
+func ls_a() {
+	linux.Execute(context.Background(), "ls").Run()
 }

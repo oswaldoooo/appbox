@@ -2,16 +2,12 @@ package network
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/oswaldoooo/app/internal/linux"
@@ -67,18 +63,8 @@ func NewSubnet(cnf *NetConfig) (nc NetConfig, err error) {
 	copy(nc.IP, _ip)
 	nc.IP[len(nc.IP)-1]++
 	nc.Type = Veth
-	var rdbuff [2]byte
-	rand.Read(rdbuff[:])
 	nc.Name = "eth0"
-	nc.VethAttr = VethAttr{
-		PairA: VethPair{
-			Name: "eth0",
-			IP:   nc.IP,
-		},
-		PairB: VethPair{
-			Name: "veth-" + hex.EncodeToString(rdbuff[:]),
-		},
-	}
+	nc.Validate()
 	return
 }
 func Dump(netcnf *NetConfig) error {
@@ -92,6 +78,9 @@ func Dump(netcnf *NetConfig) error {
 	return encoder.Encode(netcnf)
 }
 func NewInterface(nc *NetConfig, netns string) error {
+	if err := nc.Validate(); err != nil {
+		return err
+	}
 	var (
 		err  error
 		name string
@@ -100,12 +89,12 @@ func NewInterface(nc *NetConfig, netns string) error {
 	)
 	if nc.IsBridge() {
 		name = nc.Name
-		ip = nc.IP.String()
+		ip = nc.BrdAttr.IPString()
 		cmd = append(cmd, "ip", "link", "add", "dev", name, "type", "bridge")
 		err = NetRaw(netns, cmd...)
 	} else if nc.IsVeth() {
 		name = nc.VethAttr.PairA.Name
-		ip = nc.VethAttr.PairA.IP.String()
+		ip = nc.VethAttr.PairA.IPString()
 		cmd = append(cmd, "ip", "link", "add", "dev", name)
 		if len(nc.VethAttr.PairA.NsPid) > 0 {
 			cmd = append(cmd, "netns", nc.VethAttr.PairA.NsPid)
@@ -114,7 +103,7 @@ func NewInterface(nc *NetConfig, netns string) error {
 		if len(nc.VethAttr.PairB.NsPid) > 0 {
 			cmd = append(cmd, "netns", nc.VethAttr.PairB.NsPid)
 		}
-		fmt.Println(strings.Join(cmd, " "))
+		// fmt.Println(strings.Join(cmd, " "))
 		err = NetRaw("", cmd...)
 	} else {
 		return errors.New("unknown interface type " + strconv.Itoa(int(nc.Type)))
@@ -137,7 +126,7 @@ func NewInterface(nc *NetConfig, netns string) error {
 	if err != nil {
 		return errors.New("set interface ip error " + err.Error())
 	}
-	if len(nc.BrdAttr.Name) > 0 {
+	if nc.IsVeth() && len(nc.BrdAttr.Name) > 0 {
 		err = IfaceMaster(nc.VethAttr.PairB.Name, nc.BrdAttr.Name, "")
 		if err != nil {
 			return errors.New("set interface master error " + err.Error())
@@ -155,6 +144,8 @@ func NetRaw(netns string, args ...string) error {
 		cmd = append(cmd, "ip", "netns", "exec", netns)
 	}
 	cmd = append(cmd, args...)
+	// _, f, line, _ := runtime.Caller(1)
+	// fmt.Println(f+":"+strconv.Itoa(line), strings.Join(cmd, " "))
 	return linux.Execute(context.Background(), cmd[0], cmd[1:]...).Run().Err
 }
 func IfaceUp(name string, netns string) error {
