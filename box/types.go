@@ -5,7 +5,6 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/oswaldoooo/app/internal/linux"
 	"github.com/oswaldoooo/app/internal/network"
 )
 
@@ -30,21 +29,6 @@ type BoxNsConfig struct {
 	Flags     int
 }
 
-func (b *BoxConfig) Validate() error {
-	if len(b.LinkNet) > 0 {
-		linux.Parent_NETNS_ID = b.LinkNet
-	}
-	if len(b.LinkFs) > 0 {
-		linux.Parent_MNTNS_ID = b.LinkFs
-	}
-	if len(b.LinkPid) > 0 {
-		linux.Parent_PIDNS_ID = b.LinkPid
-	}
-	if len(b.LinkUts) > 0 {
-		linux.Parent_UTSNS_ID = b.LinkUts
-	}
-	return nil
-}
 func (b BoxConfig) NsConfig() (nscnf BoxNsConfig) {
 	flags := syscall.CLONE_NEWPID
 	if b.StandloneFs {

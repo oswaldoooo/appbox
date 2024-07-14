@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/oswaldoooo/app/box"
 	"github.com/oswaldoooo/app/boxaction"
+	"github.com/oswaldoooo/app/internal/linux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 func main() {
 	var rootcmd cobra.Command
-	rootcmd.AddCommand(NewRunCommand(), NewListCommand(), NewNetCommand())
+	rootcmd.AddCommand(NewRunCommand(), NewListCommand(), NewNetCommand(), NewNsExecCommand())
 	err := rootcmd.Execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "programer error", err)
@@ -38,7 +41,6 @@ func NewRunCommand() *cobra.Command {
 				err = json.Unmarshal(content, &bcnf)
 				throw(err, "format error")
 			}
-			bcnf.Validate()
 			err := boxaction.BoxBuild(context.Background(), bcnf)
 			throw(err, "box build error")
 
@@ -136,4 +138,53 @@ func loadobj(rpath string, v any) error {
 	}
 	defer f.Close()
 	return json.NewDecoder(f).Decode(v)
+}
+
+func NewNsExecCommand() *cobra.Command {
+	type NsExecFlag struct {
+		Net    bool
+		Ns     bool
+		Pid    bool
+		Uts    bool
+		Target string
+	}
+	var ne_flag NsExecFlag
+	var cmd = cobra.Command{
+		Use:   "nsexec",
+		Short: "exec command in target namespace",
+		Run: func(cmd *cobra.Command, args []string) {
+			_flag := 0
+			if ne_flag.Net {
+				_flag |= linux.CLONE_NET
+			}
+			if ne_flag.Ns {
+				_flag |= linux.CLONE_NS
+			}
+			if ne_flag.Pid {
+				_flag |= linux.CLONE_PID
+			}
+			if ne_flag.Uts {
+				_flag |= linux.CLONE_UTS
+			}
+			parent_pid := os.Getpid()
+			linux.NsExec(_flag, ne_flag.Target).Then(func(h *linux.Hook, a any) {
+				_arg := a.([]string)
+				err := linux.Execute(context.Background(), _arg[0], _arg[1:]...).SetIO(os.Stdout, os.Stderr).SetStdin(os.Stdin).Run().Err
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "execute command error", err)
+				}
+				syscall.Kill(parent_pid, syscall.SIGINT)
+			}, args).End(-1)
+			ch := make(chan os.Signal, 1)
+			signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+			<-ch
+		},
+	}
+	cmd.Flags().StringVar(&ne_flag.Target, "target", "", "target pid namespace")
+	cmd.Flags().BoolVarP(&ne_flag.Net, "net", "n", false, "net namespace")
+	cmd.Flags().BoolVarP(&ne_flag.Ns, "mnt", "m", false, "mount namespace")
+	cmd.Flags().BoolVarP(&ne_flag.Pid, "pid", "p", false, "pid namespace")
+	cmd.Flags().BoolVarP(&ne_flag.Uts, "uts", "u", false, "uts namespace")
+	cmd.MarkFlagRequired("target")
+	return &cmd
 }

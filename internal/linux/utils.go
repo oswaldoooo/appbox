@@ -42,6 +42,12 @@ func (e *Executor) SetIO(stdout, stderr io.Writer) *Executor {
 	}
 	return e
 }
+func (e *Executor) SetStdin(stdin io.Reader) *Executor {
+	if e != nil {
+		e.Stdin = stdin
+	}
+	return e
+}
 
 func Mknod(rpath string, mode uint32) error {
 	return syscall.Mknod(rpath, mode, syscall.S_IFCHR)

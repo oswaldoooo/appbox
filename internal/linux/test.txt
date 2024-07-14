@@ -1,0 +1,16 @@
+1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0@if9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether 62:76:2e:f0:26:4e brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 172.17.10.5/16 brd 172.17.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::6076:2eff:fef0:264e/64 scope link 
+       valid_lft forever preferred_lft forever
+4: eth2@if14: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default qlen 1000
+    link/ether 36:0f:28:67:3e:3a brd ff:ff:ff:ff:ff:ff link-netnsid 0
+6: appbox0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/ether fa:c0:cf:2a:49:70 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.20.1/16 brd 172.17.255.255 scope global appbox0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f8c0:cfff:fe2a:4970/64 scope link 
+       valid_lft forever preferred_lft forever

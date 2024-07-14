@@ -138,3 +138,18 @@ func TestSetNs(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNsExec(t *testing.T) {
+	linux.NsExec(linux.CLONE_NET|linux.CLONE_NS, "6350").Then(func(h *linux.Hook, a any) {
+		os.Chdir("/")
+		f, err := os.OpenFile("./test.txt", os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+		cmd := linux.Execute(context.Background(), "ip", "a")
+		cmd.Stdout = f
+		cmd.Stderr = f
+		cmd.Run()
+
+	}, nil).End(1)
+}

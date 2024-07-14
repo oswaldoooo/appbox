@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"strconv"
 	"syscall"
 )
 
@@ -31,8 +30,9 @@ func (h *Hook) End(code int) error {
 	if h.is_do {
 		if h.Err != nil {
 			fmt.Fprintln(os.Stderr, h.Err)
+			os.Exit(code)
 		}
-		os.Exit(code)
+		os.Exit(0)
 	}
 	return h.Err
 }
@@ -53,13 +53,6 @@ func UnMountProc(rpath string) error {
 	return syscall.Unmount(rpath, 0)
 }
 
-var (
-	Parent_NETNS_ID = "1"
-	Parent_MNTNS_ID = "1"
-	Parent_PIDNS_ID = "1"
-	Parent_UTSNS_ID = "1"
-)
-
 func Unshare(flags int, mount_proc string) *Hook {
 	if len(mount_proc) > 0 && flags&syscall.CLONE_NEWNS == 0 {
 		flags |= syscall.CLONE_NEWNS
@@ -75,23 +68,6 @@ func Unshare(flags int, mount_proc string) *Hook {
 			if int(pid_) < 0 {
 				println("fork error")
 				os.Exit(-1)
-			} else if pid_ > 0 {
-				err = SetNsWithFile("/proc/"+Parent_NETNS_ID+"/ns/net", 0)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, "set parent ns error", err)
-				}
-				err = SetNsWithFile("/proc/"+Parent_MNTNS_ID+"/ns/mnt", 0)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, "set parent ns error", err)
-				}
-				if flags&syscall.CLONE_NEWNET > 0 {
-					//config new ns to ip netns
-					pidstr := strconv.Itoa(int(pid_))
-					err = os.Symlink("/proc/"+pidstr+"/ns/net", "/var/run/netns/"+pidstr)
-					if err != nil {
-						hook.Err = errors.New("link network to ip netns error" + err.Error())
-					}
-				}
 			}
 			return &hook
 		}
@@ -155,6 +131,48 @@ func _pivot_root(rpath string) error {
 	err = syscall.Unmount("/oldroot.app", syscall.MNT_DETACH)
 	os.Remove("/oldroot.app")
 	return err
+}
+
+const (
+	CLONE_NS = 1 << iota
+	CLONE_NET
+	CLONE_PID
+	CLONE_UTS
+)
+
+func NsExec(_flag int, pid string) *Hook {
+	_pid := int(C.fork())
+	if _pid != 0 {
+		if _pid < 0 {
+			return &Hook{Err: errors.New("fork error")}
+		}
+		return &Hook{data: _pid}
+	}
+	var (
+		err  error
+		hook = Hook{is_do: true}
+	)
+	if _flag&CLONE_NS > 0 {
+		err = SetNsWithFile("/proc/"+pid+"/ns/mnt", 0)
+		hook.Err = err
+		return &hook
+	}
+	if _flag&CLONE_NET > 0 {
+		err = SetNsWithFile("/proc/"+pid+"/ns/net", 0)
+		hook.Err = err
+		return &hook
+	}
+	if _flag&CLONE_PID > 0 {
+		err = SetNsWithFile("/proc/"+pid+"/ns/pid", 0)
+		hook.Err = err
+		return &hook
+	}
+	if _flag&CLONE_UTS > 0 {
+		err = SetNsWithFile("/proc/"+pid+"/ns/uts", 0)
+		hook.Err = err
+		return &hook
+	}
+	return &hook
 }
 
 // func ExecuteWithNs(nsfile string, name string, args ...string) error {

@@ -6,9 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
+	"strings"
+	"syscall"
 
 	"github.com/oswaldoooo/app/internal/linux"
 )
@@ -96,20 +100,27 @@ func NewInterface(nc *NetConfig, netns string) error {
 		name = nc.VethAttr.PairA.Name
 		ip = nc.VethAttr.PairA.IP.String()
 		cmd = append(cmd, "ip", "link", "add", "dev", name)
-		if len(netns) > 0 {
-			cmd = append(cmd, "netns", netns)
+		if len(nc.VethAttr.PairA.NsPid) > 0 {
+			cmd = append(cmd, "netns", nc.VethAttr.PairA.NsPid)
 		}
 		cmd = append(cmd, "type", "veth", "peer", "name", nc.VethAttr.PairB.Name)
+		if len(nc.VethAttr.PairB.NsPid) > 0 {
+			cmd = append(cmd, "netns", nc.VethAttr.PairB.NsPid)
+		}
+		fmt.Println(strings.Join(cmd, " "))
 		err = NetRaw("", cmd...)
 	} else {
 		return errors.New("unknown interface type " + strconv.Itoa(int(nc.Type)))
 	}
 	// err := linux.Execute(context.Background(), cmd[0], cmd[1:]...).Run().Err
 	if err != nil {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT)
+		<-ch
 		return errors.New("create interface error " + err.Error())
 	}
 	if nc.IsVeth() {
-		show_ip_a()
+		// show_ip_a()
 		err = IfaceUp(nc.VethAttr.PairB.Name, "")
 		if err != nil {
 			return errors.New("start veth pairA error " + err.Error())

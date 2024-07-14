@@ -25,6 +25,13 @@ const (
 	VMDir      = "vm"
 )
 
+var (
+	Parent_NETNS_ID = "1"
+	Parent_MNTNS_ID = "1"
+	Parent_PIDNS_ID = "1"
+	Parent_UTSNS_ID = "1"
+)
+
 func BuildBoxAction(hashvalue string) (err error) {
 	hashpath := path.Join(BoxRootDir, RepoDir, hashvalue)
 	obj := parser.ParseObject(hashpath)
@@ -50,11 +57,51 @@ func BoxExec(ctx context.Context, ID string, cmd ...string) {
 		return
 	}
 }
-
+func validate(cnf *box.BoxConfig) {
+	if len(cnf.LinkFs) > 0 {
+		Parent_MNTNS_ID = cnf.LinkFs
+	}
+	if len(cnf.LinkNet) > 0 {
+		Parent_NETNS_ID = cnf.LinkNet
+	}
+	if len(cnf.LinkPid) > 0 {
+		Parent_PIDNS_ID = cnf.LinkPid
+	}
+	if len(cnf.LinkUts) > 0 {
+		Parent_UTSNS_ID = cnf.LinkUts
+	}
+}
 func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 	bnscnf := bcnf.NsConfig()
+	validate(&bcnf)
 	err := linux.Unshare(bnscnf.Flags, bnscnf.MountProc).Then(func(hook *linux.Hook, a any) {
 		cnf := a.(box.BoxNsConfig)
+		var err error
+		err = linux.SetNsWithFile("/proc/1/ns/net", 0)
+		_pid := hook.Data().(int)
+		println("box pid", _pid)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "set parent ns error", err)
+			syscall.Kill(_pid, syscall.SIGKILL)
+			return
+		}
+		err = linux.SetNsWithFile("/proc/"+Parent_MNTNS_ID+"/ns/mnt", 0)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "set parent ns error", err)
+			syscall.Kill(_pid, syscall.SIGKILL)
+			return
+		}
+		if cnf.Flags&syscall.CLONE_NEWNET > 0 {
+			//config new ns to ip netns
+			pidstr := strconv.Itoa(_pid)
+			os.Mkdir("/var/run/netns", 0755)
+			err = os.Symlink("/proc/"+pidstr+"/ns/net", "/var/run/netns/"+pidstr)
+			if err != nil {
+				hook.Err = errors.New("link network to ip netns error" + err.Error())
+				syscall.Kill(_pid, syscall.SIGKILL)
+				return
+			}
+		}
 		child_pid := hook.Data().(int)
 		if cnf.Flags&syscall.CLONE_NEWNET > 0 {
 			err := config_network(child_pid)
@@ -142,6 +189,9 @@ func config_network(child_pid int) error {
 		}
 		//unlink netns
 		syscall.Unlink("/var/run/netns/" + strconv.Itoa(child_pid))
+		if Parent_NETNS_ID != "1" {
+			syscall.Unlink("/var/run/netns/" + Parent_NETNS_ID)
+		}
 	}()
 	root_net, err := network.GetNetConfig()
 	if err != nil {
@@ -150,6 +200,10 @@ func config_network(child_pid int) error {
 	subnet, err := network.NewSubnet(&root_net)
 	if err != nil {
 		return err
+	}
+	subnet.VethAttr.PairA.NsPid = strconv.Itoa(child_pid)
+	if Parent_NETNS_ID != "1" {
+		subnet.VethAttr.PairB.NsPid = Parent_NETNS_ID
 	}
 	cnf, err := network.GetNetConfig()
 	if err != nil {
