@@ -77,6 +77,8 @@ func Unshare(flags int, mount_proc string) *Hook {
 	if err == nil {
 		os.Stderr = f
 		os.Stdout = f
+	} else {
+		println("open appbox-error.log error ", err.Error())
 	}
 	if flags&syscall.CLONE_NEWNS > 0 {
 		err = syscall.Mount("none", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")

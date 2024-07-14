@@ -21,8 +21,15 @@ const (
 	nc_path = "/etc/appbox/appbox-net.json"
 )
 
+var (
+	TargetNs string
+)
+
+func getNcPath() string {
+	return "/etc/appbox/appbox-net" + TargetNs + ".json"
+}
 func Lock() error {
-	f, err := os.OpenFile(nc_path+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
+	f, err := os.OpenFile(getNcPath()+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
@@ -31,11 +38,11 @@ func Lock() error {
 	return nil
 }
 func Unlock() error {
-	return os.Remove(nc_path + ".lock")
+	return os.Remove(getNcPath() + ".lock")
 }
 func GetNetConfig() (nc NetConfig, err error) {
 	var f *os.File
-	f, err = os.OpenFile(nc_path, os.O_RDONLY, 0644)
+	f, err = os.OpenFile(getNcPath(), os.O_RDONLY, 0644)
 	if err != nil {
 		return
 	}
@@ -75,7 +82,7 @@ func NewSubnet(cnf *NetConfig) (nc NetConfig, err error) {
 	return
 }
 func Dump(netcnf *NetConfig) error {
-	f, err := os.OpenFile(nc_path, os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(getNcPath(), os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}

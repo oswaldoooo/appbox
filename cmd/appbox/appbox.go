@@ -41,6 +41,7 @@ func NewRunCommand() *cobra.Command {
 				err = json.Unmarshal(content, &bcnf)
 				throw(err, "format error")
 			}
+			throw(bcnf.Valid(), "config error")
 			err := boxaction.BoxBuild(context.Background(), bcnf)
 			throw(err, "box build error")
 

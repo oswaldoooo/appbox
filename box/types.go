@@ -24,6 +24,19 @@ type BoxConfig struct {
 	LinkUts  string
 }
 
+func (b BoxConfig) Valid() error {
+	if b.StandloneNet && len(b.LinkNet) > 0 {
+		return errors.New("namespace mode conflicted on net")
+	}
+	if b.StandloneFs && len(b.LinkFs) > 0 {
+		return errors.New("namespace mode conflicted on filesystem")
+	}
+	if b.StandloneHost && len(b.LinkUts) > 0 {
+		return errors.New("namespace mode conflicted on uts")
+	}
+	return nil
+}
+
 type BoxNsConfig struct {
 	MountProc string
 	Flags     int
