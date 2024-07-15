@@ -1,0 +1,6 @@
+{
+  "Path":["/usr/sbin"],
+  "Run":[
+    "/usr/sbin/nginx","-g","daemon","off"
+  ]
+}

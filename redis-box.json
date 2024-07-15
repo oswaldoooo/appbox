@@ -10,10 +10,8 @@
 		"/bin/redis-server",
 		"/etc/redis/redis.conf",
 		"--daemonize",
-		"no",
-		"--ignore-warnings",
-		"ARM64-COW-BUG"
+		"no"
 	],
 	"LinkMode": true,
-	"StandloneNet": true
+	"StandloneNet":true
 }

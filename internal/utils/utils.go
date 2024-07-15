@@ -4,6 +4,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
+
+	"github.com/emirpasic/gods/v2/maps/treemap"
 )
 
 func SliceConvert[T1, T2 any](dst []T1, src []T2, cf func(dst *T1, src T2)) []T1 {
@@ -52,4 +55,93 @@ func CopyAll(elem ...string) (err error) {
 	}
 	err = errors.Join(errlist...)
 	return
+}
+
+type iosession struct {
+	io.Writer
+	cond *sync.Cond
+	lock sync.Mutex
+}
+
+func (self *iosession) wait() {
+	self.lock.Lock()
+	defer self.lock.Unlock()
+	self.cond.Wait()
+}
+func (self *iosession) notify() {
+	self.cond.Signal()
+}
+
+type IOBroadcastor struct {
+	waiter *treemap.Map[string, *iosession]
+	lock   sync.Mutex
+}
+
+func (self *IOBroadcastor) Write(b []byte) (n int, err error) {
+	type kv struct {
+		name    string
+		element *iosession
+	}
+	var (
+		size       int
+		removelist []kv = make([]kv, 0, self.waiter.Size())
+	)
+	self.waiter.All(func(key string, value *iosession) bool {
+		blen := len(b)
+		offset := 0
+	wsize:
+		size, err = value.Write(b[offset:])
+		if err != nil || size == 0 {
+			removelist = append(removelist, kv{name: key, element: value})
+			return true
+		}
+		if size < blen {
+			offset += size
+			goto wsize
+		}
+		return true
+	})
+	for _, k := range removelist {
+		self.waiter.Remove(k.name)
+		k.element.notify()
+	}
+	n = len(b)
+	return
+}
+func (i *IOBroadcastor) Put(name string, w io.Writer) error {
+	if w == nil {
+		return errors.New("writer is nil")
+	}
+	i.lock.Lock()
+	defer i.lock.Unlock()
+	v := &iosession{
+		Writer: w,
+	}
+	v.cond = sync.NewCond(&v.lock)
+	i.waiter.Put(name, v)
+	return nil
+}
+
+func (i *IOBroadcastor) Remove(name string) {
+	target, ok := i.waiter.Get(name)
+	if !ok {
+		return
+	}
+	target.notify()
+}
+
+func (i *IOBroadcastor) Wait(name string) {
+	target, ok := i.waiter.Get(name)
+	if !ok {
+		return
+	}
+	target.wait()
+}
+
+func (i *IOBroadcastor) Notify(name string) {
+	target, ok := i.waiter.Get(name)
+	if !ok {
+		return
+	}
+	target.notify()
 }
