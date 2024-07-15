@@ -1,2 +1,2 @@
 %:cmd/%
-	cd $< && go build -o ../../bin/$@ && strip ../../bin/$@
+	cd $< && go build -o ../../bin/$@

@@ -1,5 +1,7 @@
 package linux
 
+//#define _GNU_SOURCE
+//#include <sched.h>
 //#include <unistd.h>
 import "C"
 import (
@@ -42,9 +44,9 @@ func SetNsWithFile(file string, flags int) error {
 		return err
 	}
 	defer syscall.Close(fd)
-	ok, _, err := syscall.Syscall(syscall.SYS_SETNS, uintptr(fd), uintptr(flags), 0)
+	ok := C.setns(C.int(fd), C.int(flags))
 	if int(ok) < 0 {
-		return err
+		return errors.New("set ns failed " + syscall.Errno(ok).Error())
 	}
 	return nil
 }
