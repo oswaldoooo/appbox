@@ -161,4 +161,5 @@ func (nc *NetConfig) SetBrd(name string, addr net.IP, bit uint8, pid string) {
 	nc.BrdAttr.IP = addr
 	nc.BrdAttr.KeepBit = bit
 	nc.BrdAttr.Name = name
+	nc.Type = Brd
 }

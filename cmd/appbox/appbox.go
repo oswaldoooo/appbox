@@ -7,15 +7,23 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/oswaldoooo/app/box"
 	"github.com/oswaldoooo/app/boxaction"
 	"github.com/oswaldoooo/app/internal/linux"
+	"github.com/oswaldoooo/app/internal/mode"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
+func init() {
+	appmode := strings.ToLower(os.Getenv("APP_MODE"))
+	if appmode == "debug" {
+		mode.RunMode |= mode.Debug
+	}
+}
 func main() {
 	var rootcmd cobra.Command
 	rootcmd.AddCommand(NewRunCommand(), NewListCommand(), NewNetCommand(), NewNsExecCommand())

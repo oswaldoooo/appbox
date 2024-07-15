@@ -86,10 +86,11 @@ func NewInterface(nc *NetConfig, netns string) error {
 		return err
 	}
 	var (
-		err  error
-		name string
-		ip   string
-		cmd  []string
+		err      error
+		name     string
+		ip       string
+		cmd      []string
+		needswap bool
 	)
 	if nc.IsBridge() {
 		name = nc.Name
@@ -99,7 +100,14 @@ func NewInterface(nc *NetConfig, netns string) error {
 	} else if nc.IsVeth() {
 		name = nc.VethAttr.PairA.Name
 		ip = nc.VethAttr.PairA.IPString()
-		cmd = append(cmd, "ip", "link", "add", "dev", name)
+		//prepare justice for support amd64 linux
+		if len(nc.VethAttr.PairA.NsPid) > 0 && len(nc.VethAttr.PairB.NsPid) == 0 {
+			parim := nc.VethAttr.PairA
+			nc.VethAttr.PairA = nc.VethAttr.PairB
+			nc.VethAttr.PairB = parim
+			needswap = true
+		}
+		cmd = append(cmd, "ip", "link", "add", "dev", nc.VethAttr.PairA.Name)
 		if len(nc.VethAttr.PairA.NsPid) > 0 {
 			cmd = append(cmd, "netns", nc.VethAttr.PairA.NsPid)
 		}
@@ -118,6 +126,11 @@ func NewInterface(nc *NetConfig, netns string) error {
 		signal.Notify(ch, syscall.SIGINT)
 		<-ch
 		return errors.New("create interface error " + err.Error())
+	}
+	if needswap {
+		parim := nc.VethAttr.PairA
+		nc.VethAttr.PairA = nc.VethAttr.PairB
+		nc.VethAttr.PairB = parim
 	}
 	if nc.IsVeth() {
 		// show_ip_a()
