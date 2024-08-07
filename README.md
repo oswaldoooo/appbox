@@ -33,3 +33,10 @@ config json add `LinkNet` field. Link Namespace is Confilect on Standlone Namesp
 ```shell
 apptool network init appbox1 --pid 3343 --ip 172.17.20.1/24
 ```
+
+## **Boxd**
+### Io Manager
+io manager bind on tcp *:5678. make sure your host's tcp 5678 is not be used before
+
+*box will bind their self stdout and stderr to boxd(if boxd is live),then boxd copy their stdout,stderr to local file. and it also will copy one to client(if there have client connect)*
+![](io-manage.png)
