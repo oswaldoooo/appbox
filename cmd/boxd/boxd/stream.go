@@ -3,6 +3,7 @@ package boxd
 import (
 	"encoding/binary"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path"
@@ -15,16 +16,20 @@ type StreamSession struct {
 	tmpdst io.Writer
 }
 type StreamService struct {
+	logger      *log.Logger
 	stream_bind *net.TCPAddr
 	sessionmap  *treemap.Map[string, *StreamSession]
+	pidmap      *treemap.Map[string, string] //secret,pid
 }
 
-func NewStreamService(bind string) (*StreamService, error) {
+func NewStreamService(bind string, pidmap *treemap.Map[string, string], logger *log.Logger) (*StreamService, error) {
 	addr, err := net.ResolveTCPAddr("tcp4", bind)
 	if err != nil {
 		return nil, err
 	}
 	var ss = StreamService{
+		logger:      logger,
+		pidmap:      pidmap,
 		stream_bind: addr,
 		sessionmap:  treemap.New[string, *StreamSession](),
 	}
@@ -33,6 +38,7 @@ func NewStreamService(bind string) (*StreamService, error) {
 func (ss *StreamService) Run() error {
 	l, err := net.ListenTCP("tcp4", ss.stream_bind)
 	if err != nil {
+		ss.logger.Fatal("exit with error", err)
 		return err
 	}
 	for {
@@ -42,6 +48,7 @@ func (ss *StreamService) Run() error {
 		}
 		go ss.handlecon(conn)
 	}
+	ss.logger.Fatal("exit with error", err)
 	return err
 }
 func (ss *StreamService) handlecon(conn *net.TCPConn) {
@@ -49,14 +56,29 @@ func (ss *StreamService) handlecon(conn *net.TCPConn) {
 	var buff [10]byte
 	size, _ := conn.Read(buff[:])
 	if size != 8 {
+		ss.logger.Println("protocol incorrect")
 		return
 	}
-	boxpid := binary.BigEndian.Uint64(buff[:8])
+	secret := binary.BigEndian.Uint64(buff[:8])
+	secretstr := strconv.FormatUint(secret, 10)
+	boxpidstr, ok := ss.pidmap.Get(secretstr)
+	if !ok {
+		ss.logger.Println("not found secret", secretstr)
+		return
+	}
+	boxpid, err := strconv.ParseUint(boxpidstr, 10, 64)
+	if err != nil {
+		ss.pidmap.Remove(secretstr)
+		ss.logger.Println(secretstr, "pid is not uint64", boxpid)
+		return
+	}
 	ffd := binary.BigEndian.Uint16(buff[8:])
 	rpath := "/var/log/appbox/appbox" + strconv.FormatUint(boxpid, 10)
 	os.MkdirAll(rpath, 0755)
-	f, err := os.OpenFile(path.Join(rpath, strconv.Itoa(int(ffd))), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	rrpath := path.Join(rpath, strconv.Itoa(int(ffd)))
+	f, err := os.OpenFile(rrpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
+		ss.logger.Println("open", rrpath, "error", err)
 		return
 	}
 	defer f.Close()
@@ -73,7 +95,10 @@ func (ss *StreamSession) Copy(dst io.Writer, src io.Reader) (size int, err error
 	for {
 		n, err = src.Read(buff[:])
 		size += n
-		if err != nil {
+		if err != nil || n == 0 {
+			if err == nil {
+				err = io.EOF
+			}
 			return
 		}
 		if ss.tmpdst != nil {

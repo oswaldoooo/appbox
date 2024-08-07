@@ -2,9 +2,12 @@ package boxaction
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"github.com/oswaldoooo/app/box"
+	"github.com/oswaldoooo/app/internal/boxd"
 	"github.com/oswaldoooo/app/internal/linux"
 	"github.com/oswaldoooo/app/internal/network"
 	"github.com/oswaldoooo/app/internal/utils"
@@ -27,12 +31,23 @@ const (
 )
 
 var (
+	__stdout, __stderr io.Writer
+	__stdin            io.Reader
+)
+
+var (
 	Parent_NETNS_ID = "1"
 	Parent_MNTNS_ID = "1"
 	Parent_PIDNS_ID = "1"
 	Parent_UTSNS_ID = "1"
 )
+var __secret uint64
 
+func init() {
+	var rd [8]byte
+	rand.Read(rd[:])
+	__secret = binary.BigEndian.Uint64(rd[:])
+}
 func BuildBoxAction(hashvalue string) (err error) {
 	hashpath := path.Join(BoxRootDir, RepoDir, hashvalue)
 	obj := parser.ParseObject(hashpath)
@@ -73,12 +88,17 @@ func validate(cnf *box.BoxConfig) {
 	}
 }
 func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
+	if os.Geteuid() != 0 {
+		fmt.Println("appbox need admin privileges")
+		os.Exit(-1)
+	}
 	bnscnf := bcnf.NsConfig()
 	validate(&bcnf)
 	err := prepare_ns(bcnf.LinkNet, bcnf.LinkFs, bcnf.LinkPid, bcnf.LinkUts)
 	if err != nil {
 		return errors.New("link namespace error " + err.Error())
 	}
+	boxd.Init(bcnf.Boxd.Host.String(), bcnf.Boxd.HttpPort, bcnf.Boxd.TcpPort)
 	parentpid := os.Getpid()
 	err = linux.Unshare(bnscnf.Flags, bnscnf.MountProc).Then(func(hook *linux.Hook, a any) {
 		println("curr pid", os.Getpid())
@@ -124,39 +144,11 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 				return
 			}
 		}
-		// ls_a()
-		// child_pid_str := strconv.Itoa(child_pid)
-
-		//init child process log directory
-		// err = linux.SetNsWithFile("/proc/"+child_pid_str+"/ns/mnt", 0)
-		// if err != nil {
-		// 	syscall.Kill(child_pid, syscall.SIGKILL)
-		// 	hook.Err = errors.New("switch to child pid mnt namespace error " + err.Error())
-		// 	return
-		// }
-		// err = os.MkdirAll("/app/var/log/appbox", 0755)
-		// if err != nil {
-		// 	syscall.Kill(child_pid, syscall.SIGKILL)
-		// 	hook.Err = errors.New("create /var/log/appbox error " + err.Error())
-		// 	return
-		// }
-		// err = os.MkdirAll("/var/log/appbox/appbox"+child_pid_str, 0755)
-		// if err != nil {
-		// 	syscall.Kill(child_pid, syscall.SIGKILL)
-		// 	hook.Err = errors.New("create /var/log/appbox error " + err.Error())
-		// 	return
-		// }
-		// err = linux.MountBind(0, "/var/log/appbox/appbox"+child_pid_str, "/app/var/log/appbox")
-		// if err != nil {
-		// 	syscall.Kill(child_pid, syscall.SIGKILL)
-		// 	hook.Err = errors.New("mount appbox directory error " + err.Error())
-		// 	return
-		// }
-		// _, err = os.Create("/app/var/log/appbox/null")
-		// if err != nil {
-		// 	fmt.Fprintln(os.Stderr, "create appbox/null error", err)
-		// }
-		//notify child process continue
+		//add io manage
+		err = boxd.PutPid(__secret, uint64(child_pid))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "put pid to boxd error. check boxd status error msg "+err.Error())
+		}
 		println(child_pid)
 	}, bnscnf).End(1)
 	if err != nil {
@@ -200,6 +192,10 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 		syscall.Kill(parentpid, syscall.SIGUNUSED)
 		return errors.New("chroot to appbox error " + err.Error())
 	}
+	//add io manage
+	init_io()
+	//
+
 	// time.Sleep(time.Second * 60)
 	// err = init_io()
 	// if err != nil {
@@ -215,7 +211,7 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 	// for i, d := range dents {
 	// 	ds[i] = d.Name()
 	// }
-	cmd := linux.Execute(ctx, bcnf.Run[0], bcnf.Run[1:]...).SetIO(os.Stdout, os.Stderr).Start()
+	cmd := linux.Execute(ctx, bcnf.Run[0], bcnf.Run[1:]...).SetIO(__stdout, __stderr).Start()
 	if cmd.Err != nil {
 		return errors.New("run command error " + cmd.Err.Error() + "\n" + strings.Join(bcnf.Run, " "))
 	}
@@ -227,20 +223,16 @@ func BoxBuild(ctx context.Context, bcnf box.BoxConfig) error {
 	return nil
 }
 func init_io() error {
-	_, err := os.Stat("/var/log/appbox/null")
+	stdout, err := boxd.NewStream(__secret, 0)
 	if err != nil {
-		time.Sleep(time.Second)
-		_, err = os.Stat("/var/log/appbox/null")
-		if err != nil {
-			return errors.New("check appbox/null file error " + err.Error())
-		}
-	}
-	stderr, err := os.OpenFile("/var/log/appbox/stderr.log", os.O_WRONLY|os.O_CREATE, 0555)
-	if err != nil {
+		__stdout = os.Stdout
+		__stderr = os.Stderr
 		return err
 	}
-	stdout, err := os.OpenFile("/var/log/appbox/stdout.log", os.O_WRONLY|os.O_CREATE, 0555)
+	stderr, err := boxd.NewStream(__secret, 1)
 	if err != nil {
+		__stdout = os.Stdout
+		__stderr = os.Stderr
 		return err
 	}
 	if os.Stderr != nil {
@@ -249,8 +241,8 @@ func init_io() error {
 	if os.Stdout != nil {
 		os.Stdout.Close()
 	}
-	os.Stderr = stderr
-	os.Stdout = stdout
+	__stdout = stdout
+	__stderr = stderr
 	return nil
 }
 func copy_app_resources(paths []string) error {

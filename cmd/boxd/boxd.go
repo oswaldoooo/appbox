@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"syscall"
 
+	"github.com/emirpasic/gods/v2/maps/treemap"
 	"github.com/oswaldoooo/app/cmd/boxd/boxd"
+	"github.com/oswaldoooo/app/internal/unix"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +31,8 @@ var rootcmd = cobra.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = run(&boxdcnf)
+		daemon_mod, _ := cmd.Flags().GetBool("daemon")
+		err = run(&boxdcnf, daemon_mod)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -36,6 +41,7 @@ var rootcmd = cobra.Command{
 
 func init() {
 	rootcmd.Flags().StringP("config", "c", "", "config path")
+	rootcmd.Flags().BoolP("daemon", "d", false, "run as daemon")
 	rootcmd.MarkFlagRequired("config")
 }
 func main() {
@@ -46,12 +52,29 @@ func main() {
 	}
 }
 
-func run(cnf *boxd.BoxdConfig) error {
-	ss, err := boxd.NewStreamService(cnf.StreamBind)
+func run(cnf *boxd.BoxdConfig, daemon bool) error {
+	pidmap := treemap.New[string, string]()
+	ss, err := boxd.NewStreamService(cnf.StreamBind, pidmap, cnf.Logger("-stream"))
 	if err != nil {
 		return err
 	}
+	content, err := os.ReadFile("/etc/appbox/boxd.pid")
+	if err == nil {
+		lastpid, err := strconv.Atoi(string(content))
+		if err == nil {
+			syscall.Kill(lastpid, syscall.SIGKILL)
+		}
+	}
+	if daemon {
+		unix.Fork().End(-1)
+	}
 	go ss.Run()
-
-	return nil
+	svc := boxd.NewHandService(ss, cnf.Bind, cnf.Logger("-access"))
+	f, err := os.OpenFile("/etc/appbox/boxd.pid", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "create boxd pid file error", err)
+	}
+	f.Write([]byte(strconv.Itoa(os.Getpid())))
+	f.Close()
+	return svc.Run()
 }

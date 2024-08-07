@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/oswaldoooo/app/boxaction"
 	"github.com/oswaldoooo/app/internal/linux"
 	"github.com/oswaldoooo/app/internal/mode"
+	"github.com/oswaldoooo/app/internal/network"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -36,6 +38,10 @@ func main() {
 
 func NewRunCommand() *cobra.Command {
 	var bcnf box.BoxConfig
+	default_boxd_host, err := get_gateway_ip()
+	if err != nil {
+		log.Fatal("not init box gateway")
+	}
 	var cmds = cobra.Command{
 		Use:           "run",
 		Short:         "run",
@@ -55,6 +61,9 @@ func NewRunCommand() *cobra.Command {
 
 		},
 	}
+	cmds.Flags().Uint16Var(&bcnf.Boxd.TcpPort, "boxd-tcp-port", 5678, "boxd tcp port")
+	cmds.Flags().Uint16Var(&bcnf.Boxd.HttpPort, "boxd-http-port", 5677, "boxd http port")
+	cmds.Flags().IPVar(&bcnf.Boxd.Host, "boxd-host", default_boxd_host, "boxd host address")
 	cmds.Flags().StringP("apply", "f", "", "apply config file")
 	cmds.Flags().StringSliceVar(&bcnf.Path, "path", []string{}, "path")
 	cmds.Flags().StringSliceVar(&bcnf.StaticPath, "static-path", []string{}, "static path")
@@ -69,7 +78,15 @@ func NewRunCommand() *cobra.Command {
 	cmds.Flags().StringVar(&bcnf.LinkPid, "link-pid", "", "link pid namespace pid")
 	return &cmds
 }
-
+func get_gateway_ip() (addr net.IP, err error) {
+	var nc network.NetConfig
+	nc, err = network.GetNetConfig()
+	if err != nil {
+		return
+	}
+	addr = nc.IP
+	return
+}
 func NewListCommand() *cobra.Command {
 
 	var cmd = cobra.Command{

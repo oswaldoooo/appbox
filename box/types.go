@@ -24,6 +24,11 @@ type BoxConfig struct {
 	LinkFs   string
 	LinkPid  string
 	LinkUts  string
+	Boxd     struct {
+		Host     net.IP
+		HttpPort uint16
+		TcpPort  uint16
+	}
 }
 
 func (b BoxConfig) Valid() error {

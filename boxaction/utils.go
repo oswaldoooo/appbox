@@ -1,6 +1,8 @@
 package boxaction
 
-import "path"
+import (
+	"path"
+)
 
 type _rwmode_t int
 
